@@ -8,16 +8,15 @@ import random
 st.set_page_config(page_title="EUV 반도체 타이쿤", layout="wide")
 
 # --- 1. 게임 메모리(세션 상태) 초기화 ---
-if 'y_data' not in st.session_state: st.session_state.y_data = np.zeros(150) # 데이터 길이를 늘려 더 부드럽게
+if 'y_data' not in st.session_state: st.session_state.y_data = np.zeros(150)
 if 't' not in st.session_state: st.session_state.t = 0.0
-if 'money' not in st.session_state: st.session_state.money = 5000  # 초기 자본금 $5,000
+if 'money' not in st.session_state: st.session_state.money = 5000  
 if 'stage_freq' not in st.session_state: st.session_state.stage_freq = 60
 if 'tick' not in st.session_state: st.session_state.tick = 0
 
-# 상점 업그레이드 레벨
-if 'lv_sensor' not in st.session_state: st.session_state.lv_sensor = 0 # 주파수 변화 지연
-if 'lv_tmd' not in st.session_state: st.session_state.lv_tmd = 0       # 진동 억제력 강화
-if 'lv_sales' not in st.session_state: st.session_state.lv_sales = 0   # 흑자 수익 증가
+if 'lv_sensor' not in st.session_state: st.session_state.lv_sensor = 0 
+if 'lv_tmd' not in st.session_state: st.session_state.lv_tmd = 0       
+if 'lv_sales' not in st.session_state: st.session_state.lv_sales = 0   
 
 st.title("🎮 EUV 반도체 제조 타이쿤")
 st.write("진동을 제어해 돈을 벌고, 공장을 멈춘 뒤 상점에서 장비를 업그레이드하세요!")
@@ -41,7 +40,7 @@ st.markdown("---")
 game_active = st.toggle("▶️ 공장 가동 스위치 (켜면 게임 시작 / 끄면 상점 이용)", value=False)
 
 if not game_active:
-    # 🛒 상점 모드 (공장 정지 시)
+    # 🛒 상점 모드
     st.success("⏸️ 공장이 멈췄습니다. 벌어들인 돈으로 장비를 업그레이드하세요!")
     st.subheader("🛒 EUV 장비 업그레이드 상점")
     
@@ -87,25 +86,25 @@ else:
     # 🏭 실시간 게임 모드
     st.session_state.tick += 1
     
-    # 🕹️ 플레이어 조작반
+    # 🕹️ 플레이어 조작반 (1단위 조작으로 변경 완료!)
     st.error(f"🚨 **현재 장비 발생 진동:** {st.session_state.stage_freq} Hz")
-    tmd_freq = st.slider("🎯 TMD 튜닝 주파수 맞추기 (조작 슬라이더)", 20, 100, 60, step=10)
+    tmd_freq = st.slider("🎯 TMD 튜닝 주파수 맞추기 (조작 슬라이더)", 20, 100, 60, step=1)
     
     # 상점 업그레이드 효과 적용
-    freq_change_tick = 30 + (st.session_state.lv_sensor * 15) # 센서 레벨 높을수록 덜 바뀜
-    tmd_tolerance = 5.0 + (st.session_state.lv_tmd * 2.0)     # TMD 레벨 높을수록 판정 완화
-    profit_base = 300 + (st.session_state.lv_sales * 200)     # 세일즈 레벨 높을수록 수익 증가
+    freq_change_tick = 30 + (st.session_state.lv_sensor * 15) 
+    tmd_tolerance = 5.0 + (st.session_state.lv_tmd * 2.0)     
+    profit_base = 300 + (st.session_state.lv_sales * 200)     
     
-    # 돌발 진동 발생
+    # 돌발 진동 발생 (1단위 랜덤 발생으로 변경하여 1단위 슬라이더의 의미를 부여함)
     if st.session_state.tick % freq_change_tick == 0:
-        st.session_state.stage_freq = random.choice([30, 40, 50, 60, 70, 80, 90, 100])
+        st.session_state.stage_freq = random.randint(30, 100)
         
     # TMD 물리 엔진 계산
     freq_diff = abs(st.session_state.stage_freq - tmd_freq)
     tuning_factor = np.exp(-freq_diff / tmd_tolerance) 
     damping_ratio = max(0.1, 1.0 - (0.85 * tuning_factor))
 
-    # 부드러운 애니메이션을 위해 한 번에 15개의 데이터 포인트 생성
+    # 부드러운 애니메이션
     new_t = np.linspace(st.session_state.t, st.session_state.t + 0.15, 15)
     new_vibe = (15.0 * damping_ratio) * np.sin(2 * np.pi * st.session_state.stage_freq * new_t) + (1.5 * damping_ratio) * np.random.randn(15)
     
@@ -164,6 +163,5 @@ else:
         st.error("💀 파산했습니다! 스위치를 끄고 초기화 버튼을 누르세요.")
         st.stop()
 
-    # 화면 새로고침 속도를 극대화하여 훨씬 매끄럽게 만듦
     time.sleep(0.05) 
     st.rerun()
