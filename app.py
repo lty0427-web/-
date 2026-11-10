@@ -4,66 +4,79 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import time
 
-st.set_page_config(page_title="EUV 진동 분석", layout="wide")
+st.set_page_config(page_title="EUV 진동 분석 및 TMD 제어", layout="wide")
 
-# --- 세션 상태(메모리) 초기화 ---
-# 시간이 지나도 뚝뚝 끊기지 않도록 데이터를 Streamlit 내부 메모리에 저장합니다.
+# 세션 상태 초기화
 if 'y_data' not in st.session_state:
     st.session_state.y_data = np.zeros(150)
 if 't' not in st.session_state:
     st.session_state.t = 0.0
 
 st.title("EUV 노광 장비 웨이퍼 스테이지 진동 분석")
-st.write("반도체 제조 공정 중 EUV 장비의 미세 진동 데이터를 분석하고 모니터링하는 시뮬레이션입니다.")
+st.write("반도체 제조 공정 중 EUV 장비의 미세 진동 데이터를 분석하고, **TMD(동조질량감쇠기)를 통한 진동 제어 시뮬레이션**을 수행합니다.")
 
-st.sidebar.header("데이터 설정")
+st.sidebar.header("데이터 및 제어 설정")
 data_type = st.sidebar.radio("데이터 입력 방식", ("가상 데이터 생성", "CSV 업로드"))
 
 if data_type == "가상 데이터 생성":
     st.sidebar.subheader("가상 진동 데이터 파라미터")
     freq1 = st.sidebar.slider("주 주파수 (Hz)", 10, 200, 60)
-    noise_level = st.sidebar.slider("노이즈 수준", 0.0, 1.0, 0.2)
+    noise_level = st.sidebar.slider("외부 노이즈 수준", 0.0, 1.0, 0.4)
     
-    run_live = st.sidebar.checkbox("📡 실시간 모니터링 켜기 (심전도 모드)")
+    st.sidebar.markdown("---")
+    # 핵심 기능: TMD 제어 스위치
+    tmd_active = st.sidebar.toggle("🛡️ TMD 방진 시스템 가동", value=False)
+    run_live = st.sidebar.checkbox("📡 실시간 모니터링 켜기")
+    
+    # TMD 가동 여부에 따른 진폭 감소율 (가동 시 진폭 15%, 노이즈 30% 수준으로 억제)
+    damping_factor = 0.15 if tmd_active else 1.0
+    noise_damping = 0.3 if tmd_active else 1.0
     
     if run_live:
-        st.subheader("실시간 진동 모니터링")
-        st.write("웨이퍼 스테이지의 진동 파형이 실시간으로 흘러갑니다. 설정 변경이 즉각 반영됩니다.")
-        
-        # 1. 새로운 데이터 생성 (시간에 따라 이어지도록 세션 메모리의 t값 사용)
+        st.subheader("실시간 진동 모니터링 및 제어 상태")
+        if tmd_active:
+            st.info("💡 TMD 방진 시스템 가동 중: 공진 주파수를 상쇄하여 진동을 효과적으로 억제하고 있습니다.")
+        else:
+            st.warning("⚠️ TMD 방진 시스템 중지: 외부 진동이 웨이퍼 스테이지에 그대로 전달되고 있습니다.")
+            
         new_t = np.linspace(st.session_state.t, st.session_state.t + 0.1, 5)
-        new_vibe = 0.5 * np.sin(2 * np.pi * freq1 * new_t) + noise_level * np.random.randn(5)
         
-        # 2. 이전 데이터 앞부분을 밀어내고 새로운 데이터 붙이기 (항상 150개 유지)
+        # TMD 댐핑 효과가 적용된 진동 계산
+        new_vibe = (0.5 * damping_factor) * np.sin(2 * np.pi * freq1 * new_t) + (noise_level * noise_damping) * np.random.randn(5)
+        
         st.session_state.y_data = np.append(st.session_state.y_data[5:], new_vibe)
         st.session_state.t += 0.1
         
-        # 3. 그래프 출력
-        st.line_chart(st.session_state.y_data, height=400)
+        # 차트 출력 (진폭 변화를 한눈에 볼 수 있도록 y축 범위 고정)
+        chart_data = pd.DataFrame(st.session_state.y_data, columns=["Vibration Amplitude"])
+        st.line_chart(chart_data, height=400)
         
-        # 4. 실시간 상태 판정
+        # 실시간 상태 판정
         current_rms = np.sqrt(np.mean(st.session_state.y_data**2))
-        if current_rms < 0.3:
-            st.success(f"상태: 안정 (현재 RMS: {current_rms:.4f}) - 노광 작업 적합")
-        elif current_rms < 0.6:
-            st.warning(f"상태: 주의 (현재 RMS: {current_rms:.4f}) - 모니터링 필요")
-        else:
-            st.error(f"상태: 점검 필요 (현재 RMS: {current_rms:.4f}) - 방진 시스템 확인")
         
-        # 5. 화면 즉시 새로고침 (슬라이더 변화를 끊김 없이 즉각 반영하는 핵심 코드)
+        col1, col2 = st.columns(2)
+        col1.metric("현재 진동 RMS (실효값)", f"{current_rms:.4f}")
+        
+        if current_rms < 0.2:
+            col2.success("상태: 매우 안정 (초정밀 노광 작업 가능)")
+        elif current_rms < 0.5:
+            col2.warning("상태: 주의 (진동 허용치 근접, 제품 수율 저하 우려)")
+        else:
+            col2.error("상태: 위험 (허용치 초과, 장비 가동 중단 권장)")
+        
         time.sleep(0.05)
         st.rerun()
         
     else:
-        # 애니메이션 껐을 때 메모리를 초기화하여 다음 실행 준비
         st.session_state.y_data = np.zeros(150)
         st.session_state.t = 0.0
         
-        # 정밀 분석 모드 (기존과 동일)
         duration = st.sidebar.slider("측정 시간 (초)", 1, 10, 5)
         sampling_rate = 1000 
         t_arr = np.linspace(0, duration, duration * sampling_rate)
-        vibration = 0.5 * np.sin(2 * np.pi * freq1 * t_arr) + noise_level * np.random.randn(len(t_arr))
+        
+        # 정지 화면에도 TMD 댐핑 적용
+        vibration = (0.5 * damping_factor) * np.sin(2 * np.pi * freq1 * t_arr) + (noise_level * noise_damping) * np.random.randn(len(t_arr))
         df = pd.DataFrame({'Time': t_arr, 'Vibration': vibration})
         
         st.subheader("1. 정밀 진동 데이터 분석 결과")
@@ -72,26 +85,19 @@ if data_type == "가상 데이터 생성":
         peak_to_peak = df['Vibration'].max() - df['Vibration'].min()
 
         col1, col2, col3 = st.columns(3)
-        col1.metric("진동 RMS (실효값)", f"{rms_value:.4f}")
+        col1.metric("진동 RMS", f"{rms_value:.4f}")
         col2.metric("최대 편차", f"{max_deviation:.4f}")
-        col3.metric("Peak-to-Peak (최대-최소)", f"{peak_to_peak:.4f}")
+        col3.metric("Peak-to-Peak", f"{peak_to_peak:.4f}")
 
-        st.subheader("2. 웨이퍼 스테이지 상태 판정")
-        if rms_value < 0.3:
-            st.success("상태: 안정 (Stable) - 정밀 노광 작업에 적합합니다.")
-        elif rms_value < 0.6:
-            st.warning("상태: 주의 (Warning) - 진동 허용치에 근접했습니다.")
-        else:
-            st.error("상태: 점검 필요 (Check) - 허용치를 초과했습니다. 방진 시스템 점검이 필요합니다.")
-
-        st.subheader("3. 진동 데이터 시각화")
+        st.subheader("2. 주파수 분석 (FFT)")
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
         fig.tight_layout(pad=5.0)
 
-        ax1.plot(df['Time'], df['Vibration'], color='royalblue', linewidth=0.5)
-        ax1.set_title("Time-Domain Vibration Signal")
+        ax1.plot(df['Time'], df['Vibration'], color='royalblue' if not tmd_active else 'seagreen', linewidth=0.5)
+        ax1.set_title(f"Time-Domain Signal (TMD {'ON' if tmd_active else 'OFF'})")
         ax1.set_xlabel("Time (s)")
         ax1.set_ylabel("Amplitude")
+        ax1.set_ylim(-1.5, 1.5) # 비교를 위해 y축 고정
         ax1.grid(True)
 
         n = len(df)
@@ -104,21 +110,7 @@ if data_type == "가상 데이터 생성":
         ax2.set_xlabel("Frequency (Hz)")
         ax2.set_ylabel("Magnitude")
         ax2.set_xlim(0, 300)
+        ax2.set_ylim(0, 0.6) # 비교를 위해 y축 고정
         ax2.grid(True)
 
         st.pyplot(fig)
-
-        st.subheader("4. 분석 데이터 다운로드")
-        csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button(label="진동 데이터 CSV 다운로드", data=csv, file_name='euv_vibration_data.csv', mime='text/csv')
-
-else:
-    uploaded_file = st.sidebar.file_uploader("진동 데이터 CSV 파일 업로드", type=['csv'])
-    if uploaded_file is not None:
-        df = pd.read_csv(uploaded_file)
-        st.subheader("업로드된 데이터 분석 결과")
-        rms_value = np.sqrt(np.mean(df['Vibration']**2))
-        st.metric("진동 RMS", f"{rms_value:.4f}")
-        st.line_chart(df['Vibration'])
-    else:
-        st.warning("CSV 파일을 업로드해주세요.")
